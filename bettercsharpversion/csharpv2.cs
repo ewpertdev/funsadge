@@ -1,3 +1,46 @@
+my fix
+
+public async Task<bool> ExecuteTransactionAsync(IEnumerable<string> sqlStatements)
+{
+    if (sqlStatements == null || !sqlStatements.Any())
+        throw new ArgumentException("At least one SQL statement is required.", nameof(sqlStatements));
+
+    using var connection = CreateConnection();
+    await connection.OpenAsync();
+
+    using var transaction = connection.BeginTransaction(); // Begin transaction
+
+    try
+    {
+        foreach (var sql in sqlStatements)
+        {
+            ValidateSQL(sql);
+
+            using var command = new SqlCommand(sql, connection, transaction) // Attach transaction
+            {
+                CommandTimeout = _commandTimeout
+            };
+
+            await command.ExecuteNonQueryAsync();
+        }
+
+        await transaction.CommitAsync(); // Commit if all succeed
+        return true;
+    }
+    catch (Exception)
+    {
+        await transaction.RollbackAsync(); // Rollback on error
+        throw;
+    }
+}
+
+
+
+
+
+
+
+
 using System;
 using System.Data;
 using System.Data.SqlClient;
