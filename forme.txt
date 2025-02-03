@@ -1,0 +1,105 @@
+<connectionStrings>
+```
+</connectionStrings>
+
+## 2. Uso de SqlParameters
+
+### Tipos Comunes de Parámetros
+```csharp
+// Parámetros básicos
+var param1 = new SqlParameter("@Id", 1);                    // int
+var param2 = new SqlParameter("@Nombre", "Juan");          // string
+var param3 = new SqlParameter("@Fecha", DateTime.Now);     // datetime
+var param4 = new SqlParameter("@Activo", true);           // bool
+var param5 = new SqlParameter("@Precio", 99.99m);         // decimal
+
+// Parámetro con tipo específico
+var param6 = new SqlParameter {
+    ParameterName = "@Estado",
+    SqlDbType = SqlDbType.VarChar,
+    Size = 50,
+    Value = "Activo"
+};
+
+// Parámetro de salida (OUTPUT)
+var paramOutput = new SqlParameter {
+    ParameterName = "@TotalRegistros",
+    SqlDbType = SqlDbType.Int,
+    Direction = ParameterDirection.Output
+};
+```
+
+### Ejemplos de Uso
+
+1. Query Simple:
+```csharp
+var parameters = new[]
+{
+    new SqlParameter("@Limite", 10),
+    new SqlParameter("@Estado", "Activo")
+};
+
+string query = @"
+    SELECT TOP (@Limite) *
+    FROM Usuarios
+    WHERE Estado = @Estado";
+
+var result = await db.ExecuteQueryAsync(query, parameters);
+```
+
+2. Stored Procedure:
+```csharp
+var spParameters = new[]
+{
+    new SqlParameter("@FechaInicio", DateTime.Now.AddDays(-30)),
+    new SqlParameter("@FechaFin", DateTime.Now),
+    new SqlParameter("@IdUsuario", 1)
+};
+
+var spResult = await db.ExecuteStoredProcedureQueryAsync("sp_ObtenerVentas", spParameters);
+```
+
+3. Parámetros con Valores Null:
+```csharp
+var parameters = new[]
+{
+    new SqlParameter("@Id", 1),
+    new SqlParameter("@Comentario", DBNull.Value)  // Para valores NULL
+};
+```
+
+4. Parámetros de Salida:
+```csharp
+var parameters = new[]
+{
+    new SqlParameter("@Id", 1),
+    new SqlParameter {
+        ParameterName = "@Total",
+        SqlDbType = SqlDbType.Decimal,
+        Direction = ParameterDirection.Output
+    }
+};
+
+await db.ExecuteStoredProcedureNonQueryAsync("sp_CalcularTotal", parameters);
+decimal total = Convert.ToDecimal(parameters[1].Value);
+```
+
+### Mejores Prácticas
+
+1. Siempre usar parámetros para prevenir SQL Injection
+2. Nombrar los parámetros igual que en el SP o query
+3. Especificar SqlDbType cuando sea necesario
+4. Manejar correctamente los valores NULL
+5. Usar el tipo de dato correcto para cada parámetro
+6. Validar los valores antes de crear los parámetros
+
+### Tipos de Datos Comunes
+```csharp
+// Guía de tipos SQL a C#
+new SqlParameter("@Id", SqlDbType.Int);           // int
+new SqlParameter("@Nombre", SqlDbType.NVarChar);  // string
+new SqlParameter("@Fecha", SqlDbType.DateTime);   // DateTime
+new SqlParameter("@Activo", SqlDbType.Bit);       // bool
+new SqlParameter("@Precio", SqlDbType.Decimal);   // decimal
+new SqlParameter("@Datos", SqlDbType.VarBinary);  // byte[]
+``` 
