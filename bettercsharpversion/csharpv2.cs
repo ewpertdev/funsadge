@@ -338,3 +338,176 @@ public sealed class DatabaseManager : IDisposable
         }
     }
 }
+
+
+full fix
+using System;
+using System.Data;
+using System.Data.SqlClient;
+using System.Threading.Tasks;
+
+public class DatabaseManager
+{
+    private readonly string _connectionString;
+    private readonly int _commandTimeout = 30; // Default timeout (adjust as needed)
+
+    public DatabaseManager(string connectionString)
+    {
+        _connectionString = connectionString ?? throw new ArgumentNullException(nameof(connectionString));
+    }
+
+    private SqlConnection CreateConnection()
+    {
+        return new SqlConnection(_connectionString);
+    }
+
+    private void ValidateSQL(string sql)
+    {
+        if (string.IsNullOrWhiteSpace(sql))
+            throw new ArgumentException("SQL query cannot be null or empty.", nameof(sql));
+    }
+
+    private void ValidateTableName(string tableName)
+    {
+        if (string.IsNullOrWhiteSpace(tableName))
+            throw new ArgumentException("Table name cannot be null or empty.", nameof(tableName));
+    }
+
+    private SqlCommand CreateCommand(SqlConnection connection, string sql, CommandType commandType, params SqlParameter[] parameters)
+    {
+        var command = connection.CreateCommand();
+        command.CommandText = sql;
+        command.CommandType = commandType;
+        command.CommandTimeout = _commandTimeout;
+        if (parameters != null)
+            command.Parameters.AddRange(parameters);
+        return command;
+    }
+
+    public async Task<(bool isSuccess, string errorMessage)> CheckConnectionAsync()
+    {
+        try
+        {
+            using (SqlConnection connection = CreateConnection())
+            {
+                await connection.OpenAsync();
+                return (true, "Connection successful");
+            }
+        }
+        catch (Exception ex)
+        {
+            return (false, $"Connection failed: {ex.Message}");
+        }
+    }
+
+    public async Task<bool> ExecuteNonQueryAsync(string sql, params SqlParameter[] parameters)
+    {
+        ValidateSQL(sql);
+
+        using (SqlConnection connection = CreateConnection())
+        {
+            await connection.OpenAsync();
+
+            using (SqlTransaction transaction = connection.BeginTransaction())
+            {
+                try
+                {
+                    using (SqlCommand command = CreateCommand(connection, sql, CommandType.Text, parameters))
+                    {
+                        command.Transaction = transaction;
+                        await command.ExecuteNonQueryAsync();
+                    }
+
+                    await transaction.CommitAsync();
+                    return true;
+                }
+                catch (Exception ex)
+                {
+                    await transaction.RollbackAsync();
+                    throw new Exception($"Error executing non-query: {ex.Message}", ex);
+                }
+            }
+        }
+    }
+
+    public async Task<DataTable> ExecuteQueryAsync(string sql, params SqlParameter[] parameters)
+    {
+        ValidateSQL(sql);
+
+        using (SqlConnection connection = CreateConnection())
+        {
+            await connection.OpenAsync();
+
+            using (SqlCommand command = CreateCommand(connection, sql, CommandType.Text, parameters))
+            {
+                using (SqlDataReader reader = await command.ExecuteReaderAsync())
+                {
+                    DataTable dataTable = new DataTable();
+                    if (reader.HasRows)
+                    {
+                        dataTable.Load(reader);
+                    }
+                    return dataTable;
+                }
+            }
+        }
+    }
+
+    public async Task<bool> BulkCopyAsync(string tableName, DataTable dataTable)
+    {
+        ValidateTableName(tableName);
+
+        if (dataTable == null || dataTable.Rows.Count == 0)
+            throw new ArgumentException("DataTable cannot be null or empty.", nameof(dataTable));
+
+        using (SqlConnection connection = CreateConnection())
+        {
+            await connection.OpenAsync();
+
+            using (SqlBulkCopy bulkCopy = new SqlBulkCopy(connection))
+            {
+                bulkCopy.DestinationTableName = tableName;
+                bulkCopy.BatchSize = 1000;
+                bulkCopy.BulkCopyTimeout = _commandTimeout;
+
+                // Validate and add column mappings
+                foreach (DataColumn column in dataTable.Columns)
+                {
+                    if (!ColumnExistsInTable(connection, tableName, column.ColumnName))
+                        throw new Exception($"Column '{column.ColumnName}' does not exist in table '{tableName}'.");
+
+                    bulkCopy.ColumnMappings.Add(column.ColumnName, column.ColumnName);
+                }
+
+                try
+                {
+                    await bulkCopy.WriteToServerAsync(dataTable);
+                    return true;
+                }
+                catch (SqlException ex)
+                {
+                    throw new Exception($"SQL Bulk Copy error: {ex.Message}", ex);
+                }
+                catch (Exception ex)
+                {
+                    throw new Exception($"General error: {ex.Message}", ex);
+                }
+            }
+        }
+    }
+
+    private bool ColumnExistsInTable(SqlConnection connection, string tableName, string columnName)
+    {
+        string query = "SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = @Table AND COLUMN_NAME = @Column";
+        
+        using (SqlCommand command = new SqlCommand(query, connection))
+        {
+            command.Parameters.AddWithValue("@Table", tableName);
+            command.Parameters.AddWithValue("@Column", columnName);
+
+            return command.ExecuteScalar() != null;
+        }
+    }
+}
+
+
